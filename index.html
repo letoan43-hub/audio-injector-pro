@@ -1,0 +1,191 @@
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Audio Injector Pro</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;min-height:100vh;padding:24px 14px;
+ background:#080d12;color:white;
+ font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+ display:flex;justify-content:center
+}
+.app{
+ width:min(520px,100%);padding:23px;
+ background:#151b23;border:1px solid #293241;
+ border-radius:24px
+}
+h1{margin:0}
+.sub{color:#8b949e;margin:7px 0 22px;font-size:13px}
+.card{
+ background:#0e141b;border:1px solid #293241;
+ border-radius:16px;padding:16px;margin:13px 0
+}
+label{font-weight:700;display:block;margin-bottom:10px}
+.value{font-size:27px;font-weight:800;color:#00e59a;margin:8px 0}
+input{width:100%;accent-color:#00e59a}
+input[type=file]{color:#aaa}
+.buttons{display:flex;gap:10px;margin-top:17px}
+button{
+ flex:1;height:50px;border:0;border-radius:13px;
+ font-weight:800;font-size:15px
+}
+#play{background:#00e59a;color:#06110c}
+#stop{background:#303946;color:white}
+.status{color:#9ba7b5;font-size:13px;margin-top:15px}
+.warning{color:#ffcc66;font-size:12px;line-height:1.6;margin-top:18px}
+</style>
+</head>
+<body>
+<main class="app">
+<h1>Audio Injector Pro</h1>
+<div class="sub">Advanced Browser Audio Processor</div>
+
+<div class="card">
+<label>Chọn file nhạc</label>
+<input id="file" type="file" accept="audio/*">
+<div id="filename" class="status">Chưa chọn file</div>
+</div>
+
+<div class="card">
+<label>Tần số EQ</label>
+<div id="freqText" class="value">1000 Hz</div>
+<input id="freq" type="range" min="0" max="1000" value="1000">
+</div>
+
+<div class="card">
+<label>Boost âm thanh</label>
+<div id="boostText" class="value">100%</div>
+<input id="boost" type="range" min="0" max="10000" value="100" step="10">
+</div>
+
+<div class="card">
+<label>Âm lượng</label>
+<div id="volumeText" class="value">50%</div>
+<input id="volume" type="range" min="0" max="100" value="50">
+</div>
+
+<div class="buttons">
+<button id="play">▶ PHÁT</button>
+<button id="stop">■ DỪNG</button>
+</div>
+
+<div id="status" class="status">Sẵn sàng</div>
+<div class="warning">
+Boost cao có thể gây méo tiếng. Limiter giúp hạn chế clipping,
+nhưng không thể đảm bảo âm thanh luôn không méo.
+Trang web chỉ xử lý âm thanh phát từ chính trình duyệt,
+không can thiệp output của TikTok, Zalo hoặc Discord.
+</div>
+</main>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+
+const file=$("file"),freq=$("freq"),
+boost=$("boost"),volume=$("volume");
+
+let ctx=null,buffer=null,source=null;
+let filter=null,gain=null,compressor=null;
+
+function updateLabels(){
+ $("freqText").textContent=freq.value+" Hz";
+ $("boostText").textContent=boost.value+"%";
+ $("volumeText").textContent=volume.value+"%";
+
+ if(filter){
+  filter.frequency.setTargetAtTime(
+   Math.max(1,+freq.value),ctx.currentTime,.02
+  );
+ }
+ if(gain){
+  gain.gain.setTargetAtTime(
+   Math.min(100,+boost.value/100)*(+volume.value/100),
+   ctx.currentTime,.02
+  );
+ }
+}
+
+async function init(){
+ if(!ctx)ctx=new AudioContext();
+ if(ctx.state==="suspended")await ctx.resume();
+}
+
+file.addEventListener("change",async()=>{
+ const f=file.files[0];
+ if(!f)return;
+ $("filename").textContent=f.name;
+ $("status").textContent="Đang tải...";
+ try{
+  await init();
+  buffer=await ctx.decodeAudioData(await f.arrayBuffer());
+  $("status").textContent="Đã tải file thành công";
+ }catch(e){
+  buffer=null;
+  $("status").textContent="Không đọc được file";
+ }
+});
+
+$("play").onclick=async()=>{
+ if(!buffer){
+  $("status").textContent="Hãy chọn file nhạc trước";
+  return;
+ }
+ await init();
+ if(source){
+  try{source.stop()}catch(e){}
+ }
+ source=ctx.createBufferSource();
+ source.buffer=buffer;
+
+ filter=ctx.createBiquadFilter();
+ filter.type="peaking";
+ filter.frequency.value=Math.max(1,+freq.value);
+ filter.Q.value=1;
+ filter.gain.value=0;
+
+ gain=ctx.createGain();
+ gain.gain.value=Math.min(100,+boost.value/100)*(+volume.value/100);
+
+ compressor=ctx.createDynamicsCompressor();
+ compressor.threshold.value=-12;
+ compressor.knee.value=12;
+ compressor.ratio.value=8;
+ compressor.attack.value=.003;
+ compressor.release.value=.2;
+
+ source.connect(filter);
+ filter.connect(gain);
+ gain.connect(compressor);
+ compressor.connect(ctx.destination);
+
+ source.onended=()=>{
+  if(source) $("status").textContent="Đã phát xong";
+ };
+
+ source.start();
+ $("status").textContent="Đang phát • Boost "+boost.value+"%";
+};
+
+$("stop").onclick=()=>{
+ if(source){
+  try{source.stop()}catch(e){}
+  source.disconnect();
+  source=null;
+ }
+ $("status").textContent="Đã dừng";
+};
+
+[freq,boost,volume].forEach(el=>
+ el.addEventListener("input",updateLabels)
+);
+
+updateLabels();
+})();
+</script>
+</body>
+</html>
